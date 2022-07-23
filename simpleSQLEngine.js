@@ -12,6 +12,7 @@ class Database {
 	}
 
 	select(columns, table) {
+		if(colums.includes("*")) return table
 		const results = table.map(item => {
 			const result = {};
 			columns.map(column => {
