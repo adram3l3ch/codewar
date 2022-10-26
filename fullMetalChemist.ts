@@ -17,19 +17,7 @@ const molecular: Molecular = {
 	Br: [1, 80.0],
 };
 
-const sortOrder = {
-	C: 0,
-	O: 100,
-	B: 200,
-	Br: 300,
-	Cl: 400,
-	F: 500,
-	Mg: 600,
-	N: 700,
-	P: 800,
-	S: 900,
-	H: 1000,
-} as ObjectType;
+const sortOrder = ["C", "O", "B", "Br", "Cl", "F", "Mg", "N", "P", "S", "H"];
 
 //errors
 
@@ -57,38 +45,36 @@ class EmptyMolecule extends Error {
 //Atom
 
 class Atom {
-	#valency: number;
 	element: string;
 	id: number;
-	outerBond: boolean;
-	bonds: Atom[] = [];
+	#valency: number;
+	#bonds: Atom[] = [];
 
-	constructor(elt: string, id: number, outerBond = false) {
+	constructor(elt: string, id: number) {
 		this.element = elt;
 		this.id = id;
-		this.outerBond = outerBond;
 		this.#valency = molecular[elt][0];
 	}
 
 	addBond(atom: Atom) {
-		const isAtomsValence = this.bonds.length === this.#valency || atom.bonds.length === atom.#valency;
+		const isAtomsValence = this.#bonds.length === this.#valency || atom.#bonds.length === atom.#valency;
 		if (isAtomsValence || atom.id === this.id) throw new InvalidBond();
-		this.bonds.push(atom);
-		atom.bonds.push(this);
+		this.#bonds.push(atom);
+		atom.#bonds.push(this);
 	}
 
 	mutate(elt: string) {
 		const eltValency = molecular[elt][0];
-		if (this.bonds.length > eltValency) throw new InvalidBond();
+		if (this.#bonds.length > eltValency) throw new InvalidBond();
 		this.element = elt;
 		this.#valency = eltValency;
 	}
 
 	close(startId: number) {
-		const remainingHoles = this.#valency - this.bonds.length;
+		const remainingHoles = this.#valency - this.#bonds.length;
 		const atoms: Atom[] = [];
 		for (let i = 0; i < remainingHoles; i++) {
-			const atom = new Atom("H", startId + i, this.outerBond);
+			const atom = new Atom("H", startId + i);
 			this.addBond(atom);
 			atoms.push(atom);
 		}
@@ -96,16 +82,15 @@ class Atom {
 	}
 
 	unlock() {
-		this.bonds = this.bonds.filter(atom => atom.element !== "H");
+		this.#bonds = this.#bonds.filter(atom => atom.element !== "H");
 	}
 
 	toString() {
-		const bonds = [...this.bonds];
+		const bonds = [...this.#bonds];
 		bonds.sort((a, b) => {
-			const aPriority = sortOrder[a.element];
-			const bPriority = sortOrder[b.element];
-			if (aPriority < bPriority) return -1;
-			if (aPriority === bPriority && a.id < b.id) return -1;
+			const aPriority = sortOrder.indexOf(a.element);
+			const bPriority = sortOrder.indexOf(b.element);
+			if (aPriority < bPriority || (aPriority === bPriority && a.id < b.id)) return -1;
 			return 1;
 		});
 		const _bonds = bonds.map(atom => (atom.element === "H" ? "H" : `${atom.element}${atom.id}`));
@@ -130,13 +115,13 @@ class Molecule {
 		if (this.#isClosed) throw new LockedMolecule();
 		counts.forEach(count => {
 			const startId = [...this.branches, ...this.nonBranches].flat().length + 1;
-			const atoms: Atom[] = [];
+			const branch: Atom[] = [];
 			for (let i = 0; i < count; i++) {
 				const atom = new Atom("C", startId + i);
-				atoms.push(atom);
-				atoms[i - 1] && atom.addBond(atoms[i - 1]);
+				branch.push(atom);
+				branch[i - 1] && atom.addBond(branch[i - 1]);
 			}
-			this.branches.push(atoms);
+			this.branches.push(branch);
 		});
 		return this;
 	}
@@ -154,7 +139,7 @@ class Molecule {
 		const startId = [...this.branches, ...this.nonBranches].flat().length + 1;
 		lists.forEach((list, i) => {
 			const [c, b, elt] = list;
-			const atom = new Atom(elt, startId + i, true);
+			const atom = new Atom(elt, startId + i);
 			this.branches[b - 1][c - 1].addBond(atom);
 			this.nonBranches.push(atom);
 		});
@@ -163,11 +148,11 @@ class Molecule {
 	addChaining(c: number, b: number, ...elts: string[]) {
 		if (this.#isClosed) throw new LockedMolecule();
 		const startId = [...this.branches, ...this.nonBranches].flat().length + 1;
-		let atom = new Atom(elts[0], startId, true);
+		let atom = new Atom(elts[0], startId);
 		const atoms = [atom];
 		elts.forEach((elt, i) => {
 			if (i === 0) return;
-			const newAtom = new Atom(elt, startId + i, true);
+			const newAtom = new Atom(elt, startId + i);
 			atom.addBond(newAtom);
 			atoms.push(newAtom);
 			atom = newAtom;
@@ -188,7 +173,7 @@ class Molecule {
 
 	closer() {
 		if (this.#isClosed) throw new LockedMolecule();
-		this.branches.forEach(branch => {
+		[...this.branches, this.nonBranches].forEach(branch => {
 			let startId = [...this.branches, ...this.nonBranches].flat().length + 1;
 			let atoms: Atom[] = [];
 			branch.forEach(atom => {
@@ -198,14 +183,6 @@ class Molecule {
 			});
 			branch.push(...atoms);
 		});
-		let atoms: Atom[] = [];
-		let startId = [...this.branches, ...this.nonBranches].flat().length + 1;
-		this.nonBranches.forEach(atom => {
-			const newAtoms = atom.close(startId);
-			startId += newAtoms.length;
-			atoms.push(...newAtoms);
-		});
-		this.nonBranches.push(...atoms);
 		this.#isClosed = true;
 		this.#findFormula();
 		return this;
